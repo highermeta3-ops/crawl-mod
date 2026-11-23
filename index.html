@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Crawl Mod">
+<meta name="theme-color" content="#000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<title>Crawl Mod</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none;
+    background: #000;
+  }
+  /* The game may run under the home indicator, but not the controls. Fixed,
+     so that iOS can't scroll or rubber-band the page. */
+  body {
+    position: fixed; inset: 0; height: auto;
+    display: flex; box-sizing: border-box;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) 0
+             env(safe-area-inset-left);
+    touch-action: none; user-select: none;
+    -webkit-user-select: none; -webkit-touch-callout: none;
+    font: 15px system-ui, sans-serif; color: #ddd;
+  }
+  #stage { position: relative; flex: 1; min-width: 0; min-height: 0; }
+  #game { position: absolute; inset: 0; }
+  /* SDL takes the window size from the canvas's CSS size. */
+  #canvas { display: block; width: 100%; height: 100%; outline: none; }
+  #status {
+    position: fixed; inset: 0; display: flex; align-items: center;
+    justify-content: center; text-align: center; padding: 1em;
+    background: #000; color: #ccc;
+  }
+  #status[hidden] { display: none; }
+
+  #controls {
+    display: flex; flex-direction: column; gap: 8px; width: 140px;
+    padding: 6px 6px max(6px, env(safe-area-inset-bottom));
+  }
+  #keys, #dpad {
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; gap: 4px;
+  }
+  #keys { flex: 5; }
+  #dpad { flex: 3; }
+  button {
+    font: inherit; color: inherit; background: #222; border: 1px solid #444;
+    border-radius: 6px; padding: 0; min-width: 0; min-height: 0; touch-action: none;
+  }
+  #dpad button { font-size: 20px; background: #1a1a1a; }
+  button.pressed { background: #555; }
+  button.on { background: #246; border-color: #48c; }
+
+  @media (orientation: portrait) {
+    body { flex-direction: column; }
+    #controls { flex-direction: row; width: auto; height: 180px; }
+    #keys { grid-template-columns: repeat(5, 1fr); }
+  }
+
+  /* Off screen but focusable, so focusing it raises the iOS keyboard. 16px
+     stops iOS zooming in on focus. */
+  #kbd {
+    position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0;
+    border: 0; padding: 0; font-size: 16px;
+  }
+
+  #pad {
+    position: absolute; inset: 0; box-sizing: border-box; padding: 4px;
+    display: flex; flex-direction: column; gap: 4px; background: #000c;
+  }
+  #pad[hidden] { display: none; }
+  #pad-keys { flex: 4; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+  #pad-keys > div, #pad-actions { flex: 1; min-height: 0; display: flex; gap: 3px; }
+  #pad button { flex: 1; min-width: 0; font-size: 17px; }
+  #pad-actions button { font-size: 15px; }
+
+  dialog {
+    background: #181818; color: inherit; border: 1px solid #555;
+    border-radius: 10px; max-width: 26em;
+  }
+  dialog::backdrop { background: #000a; }
+  dialog p { margin: 0 0 1em; line-height: 1.4; }
+  dialog button { display: block; width: 100%; margin-top: 8px; padding: 10px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="game"><canvas id="canvas" tabindex="-1"></canvas></div>
+  <div id="pad" hidden>
+    <div id="pad-keys"></div>
+    <div id="pad-actions">
+      <button id="pad-shift">⇧ Shift</button>
+      <button id="pad-space">Space</button>
+      <button id="pad-backups">Backups</button>
+      <button id="pad-close">Close</button>
+    </div>
+  </div>
+</div>
+<div id="controls">
+  <div id="keys">
+    <button data-key="Escape">Esc</button>
+    <button data-key="Enter">⏎</button>
+    <button id="kbd-button" aria-label="Keyboard">⌨</button>
+    <button data-key="Tab">Tab</button>
+    <button data-key="o">o</button>
+    <button data-key="g">g</button>
+    <button data-key="i">i</button>
+    <button data-key="z">z</button>
+    <button data-key="a">a</button>
+    <button data-key="f">f</button>
+    <button data-key="x">x</button>
+    <button data-key="<">&lt;</button>
+    <button id="ctrl-button">Ctrl</button>
+    <button data-key=">">&gt;</button>
+    <button id="menu-button" aria-label="More keys">☰</button>
+  </div>
+  <!-- Tap to step, hold to run; the centre waits, or rests when held. -->
+  <div id="dpad">
+    <button data-key="Home" data-hold="shift">↖</button>
+    <button data-key="ArrowUp" data-hold="shift">↑</button>
+    <button data-key="PageUp" data-hold="shift">↗</button>
+    <button data-key="ArrowLeft" data-hold="shift">←</button>
+    <button data-key="." data-hold="5">•</button>
+    <button data-key="ArrowRight" data-hold="shift">→</button>
+    <button data-key="End" data-hold="shift">↙</button>
+    <button data-key="ArrowDown" data-hold="shift">↓</button>
+    <button data-key="PageDown" data-hold="shift">↘</button>
+  </div>
+</div>
+<input id="kbd" autocomplete="off" autocorrect="off" autocapitalize="off"
+       spellcheck="false" enterkeyhint="enter">
+<div id="status">Loading…</div>
+<dialog id="menu">
+  <p>Saves live in this app's storage, which iOS deletes along with the app.
+     Export a backup now and then.</p>
+  <button id="export-button">Export saves</button>
+  <button id="import-button">Import saves…</button>
+  <button id="close-button">Close</button>
+  <input id="import-file" type="file" hidden>
+</dialog>
+<script src="shell.js"></script>
+<script src="crawl-data.js"></script>
+<script src="crawl.js"></script>
+</body>
+</html>
